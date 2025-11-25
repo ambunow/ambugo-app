@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Theme variables (LIGHT) ===== */
+:root {
+  --bg: #ffffff;        /* Λευκό φόντο */
+  --fg: #000000;        /* Μαύρο κείμενο */
+  --fg-muted: #444444;  /* Πιο σκούρο γκρι για δευτερεύοντα */
+  --accent: #c70000;    /* Κόκκινο για buttons και links */
+}
+
+html,
+body,
+#__next {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ===== Container ===== */
+.container {
+  @apply max-w-5xl mx-auto px-4;
+}
+
+/* ===== Buttons ===== */
+.btn {
+  @apply inline-flex items-center justify-center px-4 py-2 rounded-md font-medium;
+  background-color: var(--accent);
+  color: #ffffff;
+  transition: background-color 0.2s ease;
+}
+
+.btn:hover {
+  background-color: #a00000;
+}
+
+/* ===== Inputs ===== */
+.input {
+  @apply px-3 py-2 rounded-md bg-white text-black border border-neutral-300;
+}
+
+/* ===== Labels ===== */
+.label {
+  color: var(--fg-muted);
+  @apply text-sm;
+}
+
+/* ===== Cards ===== */
+.card {
+  @apply rounded-xl border border-neutral-200 bg-white shadow-sm;
+}
+
+/* ===== Links ===== */
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* ===== Headers / Paragraphs ===== */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+p {
+  color: var(--fg-muted);
+}
+
+/* ===== Header / Footer ===== */
+header {
+  background-color: #ffffff;
+  color: var(--fg);
+  border-bottom: 1px solid #ddd;
+}
+
+footer {
+  background-color: #f8f8f8;
+  color: var(--fg-muted);
+  border-top: 1px solid #ddd;
+  text-align: center;
+}
