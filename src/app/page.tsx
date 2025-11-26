@@ -382,7 +382,7 @@ export default function HomePage() {
                   name="pickup"
                   required
                   placeholder="π.χ. Ευαγγελισμός, Αθήνα"
-                  className="input flex-1"
+                  className="input flex-1 h-12"
                   autoComplete="off"
                   inputMode="text"
                   value={pickupInput}
@@ -431,7 +431,7 @@ export default function HomePage() {
                 name="destination"
                 required
                 placeholder="π.χ. Ιατρικό Κέντρο, Μαρούσι"
-                className="input"
+                className="input h-12 w-full"
                 autoComplete="off"
                 inputMode="text"
                 value={destInput}
