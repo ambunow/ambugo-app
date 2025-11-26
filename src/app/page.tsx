@@ -7,6 +7,94 @@ import { db, ensureAnonAuth } from "@/lib/firebase";
 
 type PlaceInfo = { text: string; lat?: number; lng?: number };
 
+type Suggestion = {
+  description: string;
+  placeId: string;
+};
+
+const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+// ---------------- Helpers για το νέο Places Autocomplete (HTTP API) --------------
+async function fetchSuggestions(input: string): Promise<Suggestion[]> {
+  if (!GOOGLE_API_KEY || !input.trim()) return [];
+
+  try {
+    const res = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_API_KEY,
+        // ζητάμε μόνο αυτά που χρειαζόμαστε
+        "X-Goog-FieldMask":
+          "suggestions.placePrediction.text,suggestions.placePrediction.placeId",
+      },
+      body: JSON.stringify({
+        input,
+        languageCode: "el",
+        // μπορείς να προσαρμόσεις το bias αν θες (π.χ. γύρω από Αθήνα)
+        locationBias: {
+          circle: {
+            center: { latitude: 37.9838, longitude: 23.7275 },
+            radius: 50000,
+          },
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      console.error("Autocomplete HTTP error:", res.status, await res.text());
+      return [];
+    }
+
+    const data = await res.json();
+
+    const suggestions: Suggestion[] =
+      data.suggestions?.map((s: any) => ({
+        description: s.placePrediction?.text?.text ?? "",
+        placeId: s.placePrediction?.placeId ?? "",
+      })) ?? [];
+
+    return suggestions.filter((s) => s.description && s.placeId);
+  } catch (err) {
+    console.error("Autocomplete fetch error:", err);
+    return [];
+  }
+}
+
+// Place Details για να πάρουμε lat/lng + κανονική διεύθυνση
+async function fetchPlaceDetails(placeId: string): Promise<PlaceInfo> {
+  if (!GOOGLE_API_KEY || !placeId) return { text: "" };
+
+  const url =
+    "https://maps.googleapis.com/maps/api/place/details/json" +
+    `?place_id=${encodeURIComponent(placeId)}` +
+    "&fields=geometry,formatted_address,name" +
+    `&language=el&key=${encodeURIComponent(GOOGLE_API_KEY)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error("Place Details HTTP error:", res.status, await res.text());
+      return { text: "" };
+    }
+    const data = await res.json();
+    const result = data.result;
+
+    const loc = result?.geometry?.location;
+    const text = result?.formatted_address || result?.name || "";
+
+    return {
+      text,
+      lat: loc?.lat,
+      lng: loc?.lng,
+    };
+  } catch (err) {
+    console.error("Place details fetch error:", err);
+    return { text: "" };
+  }
+}
+
+// ---------------- Κύρια σελίδα ----------------
 export default function HomePage() {
   const pickupRef = useRef<HTMLInputElement>(null);
   const destRef = useRef<HTMLInputElement>(null);
@@ -14,53 +102,23 @@ export default function HomePage() {
   const [pickup, setPickup] = useState<PlaceInfo>({ text: "" });
   const [destination, setDestination] = useState<PlaceInfo>({ text: "" });
 
+  const [pickupInput, setPickupInput] = useState("");
+  const [destInput, setDestInput] = useState("");
+
+  const [pickupSuggestions, setPickupSuggestions] = useState<Suggestion[]>([]);
+  const [destSuggestions, setDestSuggestions] = useState<Suggestion[]>([]);
+
+  const pickupDebounce = useRef<number | null>(null);
+  const destDebounce = useRef<number | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [locating, setLocating] = useState(false); // <— νέο state για τρέχουσα θέση
+  const [locating, setLocating] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
 
-  // ---------------- Google Places init ----------------
-  const initPlaces = () => {
-    // @ts-ignore
-    const g = (window as any).google as any;
-    if (!g || !pickupRef.current || !destRef.current) return;
-
-    const opts = {
-      // ζητάμε address + geometry + όνομα + place_id
-      fields: ["formatted_address", "geometry", "name", "place_id"],
-      componentRestrictions: { country: ["gr", "cy"] },
-      // ΚΑΙ διευθύνσεις (geocode) ΚΑΙ σημεία ενδιαφέροντος (establishment)
-      types: ["geocode", "establishment"],
-    };
-
-    const acPickup = new g.maps.places.Autocomplete(pickupRef.current, opts);
-    const acDest = new g.maps.places.Autocomplete(destRef.current, opts);
-
-    acPickup.addListener("place_changed", () => {
-      const place = acPickup.getPlace();
-      const lat = place?.geometry?.location?.lat?.();
-      const lng = place?.geometry?.location?.lng?.();
-      const text =
-        place?.formatted_address || place?.name || pickupRef.current!.value || "";
-      pickupRef.current!.value = text;
-      setPickup({ text, lat, lng });
-    });
-
-    acDest.addListener("place_changed", () => {
-      const place = acDest.getPlace();
-      const lat = place?.geometry?.location?.lat?.();
-      const lng = place?.geometry?.location?.lng?.();
-      const text =
-        place?.formatted_address || place?.name || destRef.current!.value || "";
-      destRef.current!.value = text;
-      setDestination({ text, lat, lng });
-    });
-  };
-
-  // --------------- Helpers ---------------
-  // Αν δεν έχουμε lat/lng, προσπαθούμε με Geocoding API
+  // --------------- Geocoding fallback ---------------
   const geocodeText = async (
     text: string
   ): Promise<{ lat?: number; lng?: number; formatted?: string }> => {
@@ -84,12 +142,13 @@ export default function HomePage() {
     });
   };
 
+  // --------------- Τρέχουσα θέση ---------------
   const useCurrentLocation = () => {
     // @ts-ignore
     const g = (window as any).google as any;
 
-    setErrorMsg(null); // καθαρίζουμε παλιά σφάλματα
-    setLocating(true); // ξεκινά ο εντοπισμός
+    setErrorMsg(null);
+    setLocating(true);
 
     if (!navigator.geolocation) {
       setLocating(false);
@@ -112,6 +171,7 @@ export default function HomePage() {
                   ? results[0].formatted_address
                   : `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
               if (pickupRef.current) pickupRef.current.value = text;
+              setPickupInput(text);
               setPickup({ text, lat, lng });
               setLocating(false);
             }
@@ -119,6 +179,7 @@ export default function HomePage() {
         } else {
           const text = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
           if (pickupRef.current) pickupRef.current.value = text;
+          setPickupInput(text);
           setPickup({ text, lat, lng });
           setLocating(false);
         }
@@ -133,6 +194,75 @@ export default function HomePage() {
     );
   };
 
+  // --------------- Handlers για τα inputs + autocomplete ---------------
+  const triggerPickupAutocomplete = (value: string) => {
+    if (pickupDebounce.current) {
+      window.clearTimeout(pickupDebounce.current);
+    }
+    if (value.trim().length < 3) {
+      setPickupSuggestions([]);
+      return;
+    }
+    pickupDebounce.current = window.setTimeout(async () => {
+      const results = await fetchSuggestions(value);
+      setPickupSuggestions(results);
+    }, 300);
+  };
+
+  const triggerDestAutocomplete = (value: string) => {
+    if (destDebounce.current) {
+      window.clearTimeout(destDebounce.current);
+    }
+    if (value.trim().length < 3) {
+      setDestSuggestions([]);
+      return;
+    }
+    destDebounce.current = window.setTimeout(async () => {
+      const results = await fetchSuggestions(value);
+      setDestSuggestions(results);
+    }, 300);
+  };
+
+  const handlePickupChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setPickupInput(value);
+    setPickup((prev) => ({ ...prev, text: value, lat: undefined, lng: undefined }));
+    triggerPickupAutocomplete(value);
+  };
+
+  const handleDestChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setDestInput(value);
+    setDestination((prev) => ({ ...prev, text: value, lat: undefined, lng: undefined }));
+    triggerDestAutocomplete(value);
+  };
+
+  const selectPickupSuggestion = async (s: Suggestion) => {
+    setPickupSuggestions([]);
+    const details = await fetchPlaceDetails(s.placeId);
+    const text = details.text || s.description;
+    setPickup({
+      text,
+      lat: details.lat,
+      lng: details.lng,
+    });
+    setPickupInput(text);
+    if (pickupRef.current) pickupRef.current.value = text;
+  };
+
+  const selectDestSuggestion = async (s: Suggestion) => {
+    setDestSuggestions([]);
+    const details = await fetchPlaceDetails(s.placeId);
+    const text = details.text || s.description;
+    setDestination({
+      text,
+      lat: details.lat,
+      lng: details.lng,
+    });
+    setDestInput(text);
+    if (destRef.current) destRef.current.value = text;
+  };
+
   // --------------- Submit ---------------
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -144,8 +274,8 @@ export default function HomePage() {
       const form = e.currentTarget;
       const fd = new FormData(form);
 
-      const pickupText = ((fd.get("pickup") as string) || "").trim();
-      const destText = ((fd.get("destination") as string) || "").trim();
+      const pickupText = pickupInput.trim();
+      const destText = destInput.trim();
       const date = ((fd.get("date") as string) || "").trim();
       const comments = ((fd.get("comments") as string) || "").trim();
 
@@ -155,12 +285,12 @@ export default function HomePage() {
         return;
       }
 
-      // Αν δεν έχουμε συντεταγμένες από το Autocomplete, κάνε geocoding
       let pLat = pickup.lat,
         pLng = pickup.lng,
         dLat = destination.lat,
         dLng = destination.lng;
 
+      // Αν δεν έχουμε coords από autocomplete, κάνουμε geocode
       if (pLat == null || pLng == null) {
         const r = await geocodeText(pickupText);
         if (r.lat != null && r.lng != null) {
@@ -197,6 +327,8 @@ export default function HomePage() {
       form.reset();
       setPickup({ text: "" });
       setDestination({ text: "" });
+      setPickupInput("");
+      setDestInput("");
     } catch (err) {
       console.error(err);
       setSuccessMsg(null);
@@ -208,10 +340,10 @@ export default function HomePage() {
 
   return (
     <>
+      {/* Χρειαζόμαστε ακόμα το Maps JS για Geocoder + geolocation */}
       <Script
-        src={`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`}
+        src={`https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&libraries=places`}
         strategy="afterInteractive"
-        onLoad={initPlaces}
       />
 
       <section className="container py-10">
@@ -224,50 +356,101 @@ export default function HomePage() {
           className="grid gap-4 max-w-2xl card p-6"
           autoComplete="on"
         >
+          {/* ΠΑΡΑΛΑΒΗ */}
           <label className="grid gap-1">
             <span className="label">Διεύθυνση παραλαβής *</span>
-            <div className="flex gap-2">
-              <input
-                ref={pickupRef}
-                name="pickup"
-                required
-                placeholder="π.χ. Ευαγγελισμός, Αθήνα"
-                className="input flex-1"
-                defaultValue=""
-                autoComplete="street-address"
-                inputMode="text"
-              />
-              <button
-                type="button"
-                className="btn disabled:opacity-60"
-                onClick={useCurrentLocation}
-                title="Χρήση τρέχουσας θέσης"
-                disabled={locating}
-              >
-                {locating ? "Εντοπισμός..." : "Τρέχουσα θέση"}
-              </button>
+            <div className="relative flex flex-col gap-1">
+              <div className="flex gap-2">
+                <input
+                  ref={pickupRef}
+                  name="pickup"
+                  required
+                  placeholder="π.χ. Ευαγγελισμός, Αθήνα"
+                  className="input flex-1"
+                  autoComplete="off"
+                  inputMode="text"
+                  value={pickupInput}
+                  onChange={handlePickupChange}
+                  onBlur={() => {
+                    // μικρή καθυστέρηση για να προλάβει το click στο suggestion
+                    setTimeout(() => setPickupSuggestions([]), 200);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn disabled:opacity-60"
+                  onClick={useCurrentLocation}
+                  title="Χρήση τρέχουσας θέσης"
+                  disabled={locating}
+                >
+                  {locating ? "Εντοπισμός..." : "Τρέχουσα θέση"}
+                </button>
+              </div>
+
+              {pickupSuggestions.length > 0 && (
+                <ul className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white text-sm shadow">
+                  {pickupSuggestions.map((s) => (
+                    <li
+                      key={s.placeId}
+                      className="cursor-pointer px-3 py-2 hover:bg-gray-100"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        selectPickupSuggestion(s);
+                      }}
+                    >
+                      {s.description}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </label>
 
+          {/* ΠΡΟΟΡΙΣΜΟΣ */}
           <label className="grid gap-1">
             <span className="label">Διεύθυνση προορισμού *</span>
-            <input
-              ref={destRef}
-              name="destination"
-              required
-              placeholder="π.χ. Ιατρικό Κέντρο, Μαρούσι"
-              className="input"
-              defaultValue=""
-              autoComplete="street-address"
-              inputMode="text"
-            />
+            <div className="relative">
+              <input
+                ref={destRef}
+                name="destination"
+                required
+                placeholder="π.χ. Ιατρικό Κέντρο, Μαρούσι"
+                className="input"
+                autoComplete="off"
+                inputMode="text"
+                value={destInput}
+                onChange={handleDestChange}
+                onBlur={() => {
+                  setTimeout(() => setDestSuggestions([]), 200);
+                }}
+              />
+
+              {destSuggestions.length > 0 && (
+                <ul className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white text-sm shadow">
+                  {destSuggestions.map((s) => (
+                    <li
+                      key={s.placeId}
+                      className="cursor-pointer px-3 py-2 hover:bg-gray-100"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        selectDestSuggestion(s);
+                      }}
+                    >
+                      {s.description}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </label>
 
+          {/* ΗΜΕΡΟΜΗΝΙΑ */}
           <label className="grid gap-1">
             <span className="label">Ημερομηνία *</span>
             <input type="date" name="date" required className="input" min={today} />
           </label>
 
+          {/* ΣΧΟΛΙΑ */}
           <label className="grid gap-1">
             <span className="label">Σχόλια</span>
             <textarea
