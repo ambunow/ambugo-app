@@ -28,8 +28,11 @@ export default function HomePage() {
     if (!g || !pickupRef.current || !destRef.current) return;
 
     const opts = {
-      fields: ["formatted_address", "geometry", "name"],
+      // ζητάμε address + geometry + όνομα + place_id
+      fields: ["formatted_address", "geometry", "name", "place_id"],
       componentRestrictions: { country: ["gr", "cy"] },
+      // ΚΑΙ διευθύνσεις (geocode) ΚΑΙ σημεία ενδιαφέροντος (establishment)
+      types: ["geocode", "establishment"],
     };
 
     const acPickup = new g.maps.places.Autocomplete(pickupRef.current, opts);
@@ -85,8 +88,8 @@ export default function HomePage() {
     // @ts-ignore
     const g = (window as any).google as any;
 
-    setErrorMsg(null);       // καθαρίζουμε παλιά σφάλματα
-    setLocating(true);       // ξεκινά ο εντοπισμός
+    setErrorMsg(null); // καθαρίζουμε παλιά σφάλματα
+    setLocating(true); // ξεκινά ο εντοπισμός
 
     if (!navigator.geolocation) {
       setLocating(false);
