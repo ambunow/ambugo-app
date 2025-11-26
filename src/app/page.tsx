@@ -281,11 +281,14 @@ export default function HomePage() {
       const timeTo = ((fd.get("timeTo") as string) || "").trim();
       const ambulanceType = ((fd.get("ambulanceType") as string) || "").trim();
       const isEmergency = fd.get("isEmergency") === "on";
+      const email = ((fd.get("email") as string) || "").trim();
+      const fullName = ((fd.get("fullName") as string) || "").trim();
+      const phone = ((fd.get("phone") as string) || "").trim();
       const comments = ((fd.get("comments") as string) || "").trim();
 
-      if (!pickupText || !destText || !date || !ambulanceType) {
+      if (!pickupText || !destText || !date || !ambulanceType || !email) {
         setErrorMsg(
-          "Συμπλήρωσε παραλαβή, προορισμό, ημερομηνία και είδος ασθενοφόρου."
+          "Συμπλήρωσε παραλαβή, προορισμό, ημερομηνία, είδος ασθενοφόρου και email."
         );
         setSubmitting(false);
         return;
@@ -326,6 +329,9 @@ export default function HomePage() {
         timeTo: timeTo || null,
         ambulanceType,
         isEmergency,
+        email,
+        fullName: fullName || null,
+        phone: phone || null,
         comments,
         createdAt: serverTimestamp(),
         status: "pending",
@@ -517,6 +523,43 @@ export default function HomePage() {
             <span className="text-sm text-gray-800">
               Επείγον περιστατικό (άμεση παραλαβή)
             </span>
+          </label>
+
+          {/* Email (υποχρεωτικό) */}
+          <label className="grid gap-1">
+            <span className="label">Email *</span>
+            <input
+              type="email"
+              name="email"
+              required
+              className="input"
+              placeholder="π.χ. onoma@example.com"
+              autoComplete="email"
+            />
+          </label>
+
+          {/* Ονοματεπώνυμο (προαιρετικό) */}
+          <label className="grid gap-1">
+            <span className="label">Ονοματεπώνυμο</span>
+            <input
+              type="text"
+              name="fullName"
+              className="input"
+              placeholder="π.χ. Γιώργος Παπαδόπουλος"
+              autoComplete="name"
+            />
+          </label>
+
+          {/* Κινητό τηλέφωνο (προαιρετικό) */}
+          <label className="grid gap-1">
+            <span className="label">Κινητό τηλέφωνο</span>
+            <input
+              type="tel"
+              name="phone"
+              className="input"
+              placeholder="π.χ. 69xxxxxxxx"
+              autoComplete="tel"
+            />
           </label>
 
           {/* ΣΧΟΛΙΑ */}
