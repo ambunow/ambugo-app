@@ -359,7 +359,7 @@ export default function HomePage() {
           {/* ΠΑΡΑΛΑΒΗ */}
           <label className="grid gap-1">
             <span className="label">Διεύθυνση παραλαβής *</span>
-            <div className="relative flex flex-col gap-1">
+            <div className="relative flex flex-col gap-1 w-full">
               <div className="flex gap-2">
                 <input
                   ref={pickupRef}
@@ -388,7 +388,7 @@ export default function HomePage() {
               </div>
 
               {pickupSuggestions.length > 0 && (
-                <ul className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white text-sm shadow">
+                <ul className="absolute z-20 top-full left-0 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white text-sm shadow">
                   {pickupSuggestions.map((s) => (
                     <li
                       key={s.placeId}
@@ -409,7 +409,7 @@ export default function HomePage() {
           {/* ΠΡΟΟΡΙΣΜΟΣ */}
           <label className="grid gap-1">
             <span className="label">Διεύθυνση προορισμού *</span>
-            <div className="relative">
+            <div className="relative w-full">
               <input
                 ref={destRef}
                 name="destination"
@@ -426,7 +426,7 @@ export default function HomePage() {
               />
 
               {destSuggestions.length > 0 && (
-                <ul className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white text-sm shadow">
+                <ul className="absolute z-20 top-full left-0 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white text-sm shadow">
                   {destSuggestions.map((s) => (
                     <li
                       key={s.placeId}
