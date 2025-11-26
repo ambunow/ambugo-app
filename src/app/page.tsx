@@ -277,10 +277,16 @@ export default function HomePage() {
       const pickupText = pickupInput.trim();
       const destText = destInput.trim();
       const date = ((fd.get("date") as string) || "").trim();
+      const timeFrom = ((fd.get("timeFrom") as string) || "").trim();
+      const timeTo = ((fd.get("timeTo") as string) || "").trim();
+      const ambulanceType = ((fd.get("ambulanceType") as string) || "").trim();
+      const isEmergency = fd.get("isEmergency") === "on";
       const comments = ((fd.get("comments") as string) || "").trim();
 
-      if (!pickupText || !destText || !date) {
-        setErrorMsg("Συμπλήρωσε παραλαβή, προορισμό και ημερομηνία.");
+      if (!pickupText || !destText || !date || !ambulanceType) {
+        setErrorMsg(
+          "Συμπλήρωσε παραλαβή, προορισμό, ημερομηνία και είδος ασθενοφόρου."
+        );
         setSubmitting(false);
         return;
       }
@@ -316,6 +322,10 @@ export default function HomePage() {
         destLat: dLat ?? null,
         destLng: dLng ?? null,
         date,
+        timeFrom: timeFrom || null,
+        timeTo: timeTo || null,
+        ambulanceType,
+        isEmergency,
         comments,
         createdAt: serverTimestamp(),
         status: "pending",
@@ -448,6 +458,65 @@ export default function HomePage() {
           <label className="grid gap-1">
             <span className="label">Ημερομηνία *</span>
             <input type="date" name="date" required className="input" min={today} />
+          </label>
+
+          {/* Ώρα παραλαβής (από / έως) */}
+          <label className="grid gap-1">
+            <span className="label flex items-center justify-between">
+              <span>Ώρα παραλαβής</span>
+              <span className="text-xs text-gray-500">(προαιρετική)</span>
+            </span>
+            <div className="flex gap-2">
+              <input
+                type="time"
+                name="timeFrom"
+                className="input"
+              />
+              <input
+                type="time"
+                name="timeTo"
+                className="input"
+              />
+            </div>
+          </label>
+
+          {/* Είδος ασθενοφόρου */}
+          <label className="grid gap-1">
+            <span className="label">Είδος ασθενοφόρου *</span>
+            <select
+              name="ambulanceType"
+              required
+              className="input"
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Επιλέξτε είδος ασθενοφόρου
+              </option>
+              <option value="basic">
+                Απλό ασθενοφόρο (μεταφορά ασθενούς)
+              </option>
+              <option value="doctor">
+                Ασθενοφόρο με συνοδεία ιατρού
+              </option>
+              <option value="icu">
+                Μονάδα εντατικής θεραπείας (ΜΕΘ)
+              </option>
+              <option value="unknown">
+                Δεν είμαι σίγουρος – να προτείνει η εταιρεία
+              </option>
+            </select>
+          </label>
+
+          {/* Επείγον περιστατικό */}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              name="isEmergency"
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            <span className="text-sm text-gray-800">
+              Επείγον περιστατικό (άμεση παραλαβή)
+            </span>
           </label>
 
           {/* ΣΧΟΛΙΑ */}
