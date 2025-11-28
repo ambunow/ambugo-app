@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
         <p><strong>Τηλέφωνο:</strong> ${phone || "-"}</p>
         <p><strong>Σχόλια:</strong><br />${safeComments}</p>
       `,
-      reply_to: email || undefined,
+      replyTo: email || undefined,
     });
 
     // 2) Email επιβεβαίωσης προς τον πελάτη (αν έχει δώσει email)
