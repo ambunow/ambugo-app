@@ -281,14 +281,16 @@ export default function HomePage() {
       const timeTo = ((fd.get("timeTo") as string) || "").trim();
       const ambulanceType = ((fd.get("ambulanceType") as string) || "").trim();
       const isEmergency = fd.get("isEmergency") === "on";
+
       const email = ((fd.get("email") as string) || "").trim();
       const fullName = ((fd.get("fullName") as string) || "").trim();
       const phone = ((fd.get("phone") as string) || "").trim();
+
       const comments = ((fd.get("comments") as string) || "").trim();
 
       if (!pickupText || !destText || !date || !ambulanceType || !email) {
         setErrorMsg(
-          "Συμπλήρωσε παραλαβή, προορισμό, ημερομηνία, είδος ασθενοφόρου και email."
+          "Συμπλήρωσε παραλαβή, προορισμό, ημερομηνία, είδος ασθενοφόρου και email επικοινωνίας."
         );
         setSubmitting(false);
         return;
@@ -317,6 +319,7 @@ export default function HomePage() {
 
       await ensureAnonAuth();
 
+      // Αποθήκευση στο Firestore
       await addDoc(collection(db, "requests"), {
         pickupText,
         pickupLat: pLat ?? null,
@@ -337,6 +340,30 @@ export default function HomePage() {
         status: "pending",
         source: "ambugo-web",
       });
+
+      // Ειδοποίηση με email (admin + πελάτης)
+      try {
+        await fetch("/api/notify-new-request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pickupText,
+            destText,
+            date,
+            timeFrom: timeFrom || null,
+            timeTo: timeTo || null,
+            ambulanceType,
+            isEmergency,
+            email,
+            fullName,
+            phone,
+            comments,
+          }),
+        });
+      } catch (err) {
+        console.error("Failed to call notify-new-request", err);
+        // δεν δείχνουμε error στον πελάτη – το αίτημα έχει ήδη καταχωρηθεί
+      }
 
       setErrorMsg(null);
       setSuccessMsg("✅ Το αίτημα καταχωρήθηκε! Θα λάβεις σύντομα προσφορές.");
@@ -382,7 +409,7 @@ export default function HomePage() {
                   name="pickup"
                   required
                   placeholder="π.χ. Ευαγγελισμός, Αθήνα"
-                  className="input flex-1 h-12"
+                  className="input flex-1"
                   autoComplete="off"
                   inputMode="text"
                   value={pickupInput}
@@ -431,7 +458,7 @@ export default function HomePage() {
                 name="destination"
                 required
                 placeholder="π.χ. Ιατρικό Κέντρο, Μαρούσι"
-                className="input h-12 w-full"
+                className="input"
                 autoComplete="off"
                 inputMode="text"
                 value={destInput}
@@ -473,16 +500,8 @@ export default function HomePage() {
               <span className="text-xs text-gray-500">(προαιρετική)</span>
             </span>
             <div className="flex gap-2">
-              <input
-                type="time"
-                name="timeFrom"
-                className="input"
-              />
-              <input
-                type="time"
-                name="timeTo"
-                className="input"
-              />
+              <input type="time" name="timeFrom" className="input" />
+              <input type="time" name="timeTo" className="input" />
             </div>
           </label>
 
@@ -525,40 +544,37 @@ export default function HomePage() {
             </span>
           </label>
 
-          {/* Email (υποχρεωτικό) */}
+          {/* Email */}
           <label className="grid gap-1">
             <span className="label">Email *</span>
             <input
               type="email"
               name="email"
               required
-              className="input"
               placeholder="π.χ. onoma@example.com"
-              autoComplete="email"
+              className="input"
             />
           </label>
 
-          {/* Ονοματεπώνυμο (προαιρετικό) */}
+          {/* Ονοματεπώνυμο */}
           <label className="grid gap-1">
             <span className="label">Ονοματεπώνυμο</span>
             <input
               type="text"
               name="fullName"
-              className="input"
               placeholder="π.χ. Γιώργος Παπαδόπουλος"
-              autoComplete="name"
+              className="input"
             />
           </label>
 
-          {/* Κινητό τηλέφωνο (προαιρετικό) */}
+          {/* Κινητό τηλέφωνο */}
           <label className="grid gap-1">
             <span className="label">Κινητό τηλέφωνο</span>
             <input
               type="tel"
               name="phone"
+              placeholder="π.χ. 69XXXXXXXX"
               className="input"
-              placeholder="π.χ. 69xxxxxxxx"
-              autoComplete="tel"
             />
           </label>
 

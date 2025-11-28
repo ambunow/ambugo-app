@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   query,
@@ -64,6 +64,14 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // φίλτρα & ταξινόμηση
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [emergencyFilter, setEmergencyFilter] = useState<"all" | "emergency" | "nonEmergency">("all");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+
+  // για popup λεπτομερειών
+  const [selectedRequest, setSelectedRequest] = useState<RequestDoc | null>(null);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -136,6 +144,29 @@ export default function AdminPage() {
     }
   };
 
+  // εφαρμόζουμε φίλτρα & ταξινόμηση (η βάση είναι ήδη desc από Firestore)
+  const filteredRequests = useMemo(() => {
+    let result = [...requests];
+
+    if (statusFilter !== "all") {
+      result = result.filter(
+        (r) => (r.status || "pending") === statusFilter
+      );
+    }
+
+    if (emergencyFilter === "emergency") {
+      result = result.filter((r) => r.isEmergency);
+    } else if (emergencyFilter === "nonEmergency") {
+      result = result.filter((r) => !r.isEmergency);
+    }
+
+    if (sortDir === "asc") {
+      result.reverse();
+    }
+
+    return result;
+  }, [requests, statusFilter, emergencyFilter, sortDir]);
+
   return (
     <section className="container py-10">
       <h1 className="text-2xl font-semibold mb-6 text-black">
@@ -154,104 +185,276 @@ export default function AdminPage() {
       )}
 
       {requests.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm border border-gray-200 rounded-md overflow-hidden bg-white">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-              <tr>
-                <th className="px-3 py-2 text-left">Ημ/νία αίτησης</th>
-                <th className="px-3 py-2 text-left">Ημ/νία μεταφοράς</th>
-                <th className="px-3 py-2 text-left">Από</th>
-                <th className="px-3 py-2 text-left">Προς</th>
-                <th className="px-3 py-2 text-left">Ώρα</th>
-                <th className="px-3 py-2 text-left">Είδος</th>
-                <th className="px-3 py-2 text-left">Επείγον</th>
-                <th className="px-3 py-2 text-left">Πελάτης</th>
-                <th className="px-3 py-2 text-left">Επικοινωνία</th>
-                <th className="px-3 py-2 text-left">Κατάσταση</th>
-                <th className="px-3 py-2 text-left">Σχόλια</th>
-              </tr>
-            </thead>
-            <tbody>
-              {requests.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-t border-gray-200 hover:bg-gray-50 align-top"
-                >
-                  <td className="px-3 py-2">
-                    {formatDate(r.createdAt, "-")}
-                  </td>
-                  <td className="px-3 py-2">{r.date || "-"}</td>
-                  <td className="px-3 py-2 max-w-xs">
-                    <div className="line-clamp-2">{r.pickupText}</div>
-                  </td>
-                  <td className="px-3 py-2 max-w-xs">
-                    <div className="line-clamp-2">{r.destText}</div>
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {r.timeFrom || r.timeTo
-                      ? `${r.timeFrom || "--:--"} – ${r.timeTo || "--:--"}`
-                      : "-"}
-                  </td>
-                  <td className="px-3 py-2">
-                    {r.ambulanceType
-                      ? ambulanceTypeLabel[r.ambulanceType] ??
-                        r.ambulanceType
-                      : "-"}
-                  </td>
-                  <td className="px-3 py-2">
-                    {r.isEmergency ? (
-                      <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                        Επείγον
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                        Συνήθες
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="text-sm text-gray-900">
-                      {r.fullName || "-"}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-col gap-1 text-xs">
-                      {r.email && (
-                        <a
-                          href={`mailto:${r.email}`}
-                          className="text-blue-600 hover:underline"
-                        >
-                          {r.email}
-                        </a>
-                      )}
-                      {r.phone && <span>{r.phone}</span>}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <select
-                      className="input !py-1 !text-xs"
-                      value={r.status || "pending"}
-                      onChange={(e) =>
-                        handleStatusChange(r.id, e.target.value)
-                      }
-                      disabled={updatingId === r.id}
+        <>
+          {/* Γραμμή φίλτρων */}
+          <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-600">Κατάσταση:</span>
+              <select
+                className="input !py-1 !text-xs w-48"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">Όλες οι καταστάσεις</option>
+                {statusOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-600">Επείγον:</span>
+              <select
+                className="input !py-1 !text-xs w-44"
+                value={emergencyFilter}
+                onChange={(e) =>
+                  setEmergencyFilter(e.target.value as "all" | "emergency" | "nonEmergency")
+                }
+              >
+                <option value="all">Όλα</option>
+                <option value="emergency">Μόνο επείγοντα</option>
+                <option value="nonEmergency">Μόνο μη επείγοντα</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              className="ml-auto text-xs text-gray-700 hover:text-black inline-flex items-center gap-1"
+              onClick={() =>
+                setSortDir((prev) => (prev === "desc" ? "asc" : "desc"))
+              }
+            >
+              Ταξινόμηση κατά ημ/νία αίτησης
+              <span>{sortDir === "desc" ? "↓ (νεότερα πρώτα)" : "↑ (παλαιότερα πρώτα)"}</span>
+            </button>
+          </div>
+
+          {filteredRequests.length === 0 && (
+            <div className="text-sm text-gray-600 mb-4">
+              Δεν βρέθηκαν αιτήματα με αυτά τα φίλτρα.
+            </div>
+          )}
+
+          {filteredRequests.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm border border-gray-200 rounded-md overflow-hidden bg-white">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-black"
+                        onClick={() =>
+                          setSortDir((prev) => (prev === "desc" ? "asc" : "desc"))
+                        }
+                      >
+                        Ημ/νία αίτησης
+                        <span>{sortDir === "desc" ? "↓" : "↑"}</span>
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-left">Ημ/νία μεταφοράς</th>
+                    <th className="px-3 py-2 text-left">Από</th>
+                    <th className="px-3 py-2 text-left">Προς</th>
+                    <th className="px-3 py-2 text-left">Ώρα</th>
+                    <th className="px-3 py-2 text-left">Είδος</th>
+                    <th className="px-3 py-2 text-left">Επείγον</th>
+                    <th className="px-3 py-2 text-left">Πελάτης</th>
+                    <th className="px-3 py-2 text-left">Επικοινωνία</th>
+                    <th className="px-3 py-2 text-left">Κατάσταση</th>
+                    <th className="px-3 py-2 text-left">Λεπτομέρειες</th>
+                    <th className="px-3 py-2 text-left">Σχόλια</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRequests.map((r) => (
+                    <tr
+                      key={r.id}
+                      className="border-t border-gray-200 hover:bg-gray-50 align-top"
                     >
-                      {statusOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2 max-w-xs">
-                    <div className="line-clamp-3 text-xs text-gray-700 whitespace-pre-line">
-                      {r.comments || "-"}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      <td className="px-3 py-2">
+                        {formatDate(r.createdAt, "-")}
+                      </td>
+                      <td className="px-3 py-2">{r.date || "-"}</td>
+                      <td className="px-3 py-2 max-w-xs">
+                        <div className="line-clamp-2">{r.pickupText}</div>
+                      </td>
+                      <td className="px-3 py-2 max-w-xs">
+                        <div className="line-clamp-2">{r.destText}</div>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {r.timeFrom || r.timeTo
+                          ? `${r.timeFrom || "--:--"} – ${r.timeTo || "--:--"}`
+                          : "-"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {r.ambulanceType
+                          ? ambulanceTypeLabel[r.ambulanceType] ??
+                            r.ambulanceType
+                          : "-"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {r.isEmergency ? (
+                          <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                            Επείγον
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                            Συνήθες
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="text-sm text-gray-900">
+                          {r.fullName || "-"}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-col gap-1 text-xs">
+                          {r.email && (
+                            <a
+                              href={`mailto:${r.email}`}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {r.email}
+                            </a>
+                          )}
+                          {r.phone && <span>{r.phone}</span>}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          className="input !py-1 !text-xs"
+                          value={r.status || "pending"}
+                          onChange={(e) =>
+                            handleStatusChange(r.id, e.target.value)
+                          }
+                          disabled={updatingId === r.id}
+                        >
+                          {statusOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          className="text-xs text-blue-600 hover:underline"
+                          onClick={() => setSelectedRequest(r)}
+                        >
+                          Προβολή
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 max-w-xs">
+                        <div className="line-clamp-3 text-xs text-gray-700 whitespace-pre-line">
+                          {r.comments || "-"}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Modal λεπτομερειών */}
+      {selectedRequest && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-4 shadow-lg">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Λεπτομέρειες αιτήματος
+              </h2>
+              <button
+                type="button"
+                className="text-sm text-gray-500 hover:text-gray-800"
+                onClick={() => setSelectedRequest(null)}
+              >
+                Κλείσιμο
+              </button>
+            </div>
+
+            <div className="space-y-2 text-sm">
+              <div>
+                <span className="font-medium text-gray-700">Ημ/νία αίτησης:</span>{" "}
+                <span>{formatDate(selectedRequest.createdAt, "-")}</span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Ημ/νία μεταφοράς:</span>{" "}
+                <span>{selectedRequest.date || "-"}</span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Ώρα:</span>{" "}
+                <span>
+                  {selectedRequest.timeFrom || selectedRequest.timeTo
+                    ? `${selectedRequest.timeFrom || "--:--"} – ${
+                        selectedRequest.timeTo || "--:--"
+                      }`
+                    : "-"}
+                </span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Από:</span>
+                <div className="whitespace-pre-line">
+                  {selectedRequest.pickupText}
+                </div>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Προς:</span>
+                <div className="whitespace-pre-line">
+                  {selectedRequest.destText}
+                </div>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Είδος ασθενοφόρου:</span>{" "}
+                <span>
+                  {selectedRequest.ambulanceType
+                    ? ambulanceTypeLabel[selectedRequest.ambulanceType] ??
+                      selectedRequest.ambulanceType
+                    : "-"}
+                </span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Επείγον:</span>{" "}
+                <span>
+                  {selectedRequest.isEmergency ? "Ναι (επείγον)" : "Όχι (συνήθες)"}
+                </span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Πελάτης:</span>{" "}
+                <span>{selectedRequest.fullName || "-"}</span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Email:</span>{" "}
+                <span>{selectedRequest.email || "-"}</span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Κινητό:</span>{" "}
+                <span>{selectedRequest.phone || "-"}</span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Σχόλια:</span>
+                <div className="whitespace-pre-line">
+                  {selectedRequest.comments || "-"}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                className="btn !px-4 !py-2 text-sm"
+                onClick={() => setSelectedRequest(null)}
+              >
+                Κλείσιμο
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
