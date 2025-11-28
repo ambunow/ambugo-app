@@ -31,7 +31,7 @@ async function fetchSuggestions(input: string): Promise<Suggestion[]> {
       body: JSON.stringify({
         input,
         languageCode: "el",
-        // μπορείς να προσαρμόσεις το bias αν θες (π.χ. γύρω από Αθήνα)
+        // bias γύρω από Αθήνα (προαιρετικό)
         locationBias: {
           circle: {
             center: { latitude: 37.9838, longitude: 23.7275 },
@@ -111,6 +111,10 @@ export default function HomePage() {
   const pickupDebounce = useRef<number | null>(null);
   const destDebounce = useRef<number | null>(null);
 
+  // active index για keyboard navigation
+  const [pickupActiveIndex, setPickupActiveIndex] = useState<number>(-1);
+  const [destActiveIndex, setDestActiveIndex] = useState<number>(-1);
+
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -166,10 +170,24 @@ export default function HomePage() {
           geocoder.geocode(
             { location: { lat, lng } },
             (results: any, status: any) => {
-              const text =
-                status === "OK" && results?.[0]?.formatted_address
-                  ? results[0].formatted_address
-                  : `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+              let text: string;
+
+              if (status === "OK" && results?.length) {
+                // Προσπαθούμε να αποφύγουμε plus-codes (διευθύνσεις με '+')
+                const niceResult =
+                  results.find(
+                    (r: any) =>
+                      r.formatted_address &&
+                      !String(r.formatted_address).includes("+")
+                  ) || results[0];
+
+                text =
+                  niceResult?.formatted_address ||
+                  `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+              } else {
+                text = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+              }
+
               if (pickupRef.current) pickupRef.current.value = text;
               setPickupInput(text);
               setPickup({ text, lat, lng });
@@ -201,11 +219,13 @@ export default function HomePage() {
     }
     if (value.trim().length < 3) {
       setPickupSuggestions([]);
+      setPickupActiveIndex(-1);
       return;
     }
     pickupDebounce.current = window.setTimeout(async () => {
       const results = await fetchSuggestions(value);
       setPickupSuggestions(results);
+      setPickupActiveIndex(results.length > 0 ? 0 : -1);
     }, 300);
   };
 
@@ -215,11 +235,13 @@ export default function HomePage() {
     }
     if (value.trim().length < 3) {
       setDestSuggestions([]);
+      setDestActiveIndex(-1);
       return;
     }
     destDebounce.current = window.setTimeout(async () => {
       const results = await fetchSuggestions(value);
       setDestSuggestions(results);
+      setDestActiveIndex(results.length > 0 ? 0 : -1);
     }, 300);
   };
 
@@ -239,6 +261,7 @@ export default function HomePage() {
 
   const selectPickupSuggestion = async (s: Suggestion) => {
     setPickupSuggestions([]);
+    setPickupActiveIndex(-1);
     const details = await fetchPlaceDetails(s.placeId);
     const text = details.text || s.description;
     setPickup({
@@ -252,6 +275,7 @@ export default function HomePage() {
 
   const selectDestSuggestion = async (s: Suggestion) => {
     setDestSuggestions([]);
+    setDestActiveIndex(-1);
     const details = await fetchPlaceDetails(s.placeId);
     const text = details.text || s.description;
     setDestination({
@@ -261,6 +285,49 @@ export default function HomePage() {
     });
     setDestInput(text);
     if (destRef.current) destRef.current.value = text;
+  };
+
+  // keyboard handlers για autocomplete
+  const handlePickupKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!pickupSuggestions.length) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setPickupActiveIndex((prev) =>
+        prev < pickupSuggestions.length - 1 ? prev + 1 : prev
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setPickupActiveIndex((prev) => (prev > 0 ? prev - 1 : prev));
+    } else if (e.key === "Enter" && pickupActiveIndex >= 0) {
+      e.preventDefault();
+      const s = pickupSuggestions[pickupActiveIndex];
+      if (s) selectPickupSuggestion(s);
+    } else if (e.key === "Escape") {
+      setPickupSuggestions([]);
+      setPickupActiveIndex(-1);
+    }
+  };
+
+  const handleDestKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!destSuggestions.length) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setDestActiveIndex((prev) =>
+        prev < destSuggestions.length - 1 ? prev + 1 : prev
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setDestActiveIndex((prev) => (prev > 0 ? prev - 1 : prev));
+    } else if (e.key === "Enter" && destActiveIndex >= 0) {
+      e.preventDefault();
+      const s = destSuggestions[destActiveIndex];
+      if (s) selectDestSuggestion(s);
+    } else if (e.key === "Escape") {
+      setDestSuggestions([]);
+      setDestActiveIndex(-1);
+    }
   };
 
   // --------------- Submit ---------------
@@ -290,7 +357,7 @@ export default function HomePage() {
 
       if (!pickupText || !destText || !date || !ambulanceType || !email) {
         setErrorMsg(
-          "Συμπλήρωσε παραλαβή, προορισμό, ημερομηνία, είδος ασθενοφόρου και email επικοινωνίας."
+          "Συμπλήρωσε παραλαβή, προορισμό, ημερομηνία, είδος ασθενοφόρου και email."
         );
         setSubmitting(false);
         return;
@@ -319,7 +386,6 @@ export default function HomePage() {
 
       await ensureAnonAuth();
 
-      // Αποθήκευση στο Firestore
       await addDoc(collection(db, "requests"), {
         pickupText,
         pickupLat: pLat ?? null,
@@ -340,30 +406,6 @@ export default function HomePage() {
         status: "pending",
         source: "ambugo-web",
       });
-
-      // Ειδοποίηση με email (admin + πελάτης)
-      try {
-        await fetch("/api/notify-new-request", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            pickupText,
-            destText,
-            date,
-            timeFrom: timeFrom || null,
-            timeTo: timeTo || null,
-            ambulanceType,
-            isEmergency,
-            email,
-            fullName,
-            phone,
-            comments,
-          }),
-        });
-      } catch (err) {
-        console.error("Failed to call notify-new-request", err);
-        // δεν δείχνουμε error στον πελάτη – το αίτημα έχει ήδη καταχωρηθεί
-      }
 
       setErrorMsg(null);
       setSuccessMsg("✅ Το αίτημα καταχωρήθηκε! Θα λάβεις σύντομα προσφορές.");
@@ -414,6 +456,7 @@ export default function HomePage() {
                   inputMode="text"
                   value={pickupInput}
                   onChange={handlePickupChange}
+                  onKeyDown={handlePickupKeyDown}
                   onBlur={() => {
                     // μικρή καθυστέρηση για να προλάβει το click στο suggestion
                     setTimeout(() => setPickupSuggestions([]), 200);
@@ -421,7 +464,7 @@ export default function HomePage() {
                 />
                 <button
                   type="button"
-                  className="btn disabled:opacity-60"
+                  className="btn disabled:opacity-60 whitespace-nowrap"
                   onClick={useCurrentLocation}
                   title="Χρήση τρέχουσας θέσης"
                   disabled={locating}
@@ -432,10 +475,12 @@ export default function HomePage() {
 
               {pickupSuggestions.length > 0 && (
                 <ul className="absolute z-20 top-full left-0 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white text-sm shadow">
-                  {pickupSuggestions.map((s) => (
+                  {pickupSuggestions.map((s, index) => (
                     <li
                       key={s.placeId}
-                      className="cursor-pointer px-3 py-2 hover:bg-gray-100"
+                      className={`cursor-pointer px-3 py-2 hover:bg-gray-100 ${
+                        index === pickupActiveIndex ? "bg-gray-100" : ""
+                      }`}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         selectPickupSuggestion(s);
@@ -458,11 +503,12 @@ export default function HomePage() {
                 name="destination"
                 required
                 placeholder="π.χ. Ιατρικό Κέντρο, Μαρούσι"
-                className="input"
+                className="input w-full"
                 autoComplete="off"
                 inputMode="text"
                 value={destInput}
                 onChange={handleDestChange}
+                onKeyDown={handleDestKeyDown}
                 onBlur={() => {
                   setTimeout(() => setDestSuggestions([]), 200);
                 }}
@@ -470,10 +516,12 @@ export default function HomePage() {
 
               {destSuggestions.length > 0 && (
                 <ul className="absolute z-20 top-full left-0 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-white text-sm shadow">
-                  {destSuggestions.map((s) => (
+                  {destSuggestions.map((s, index) => (
                     <li
                       key={s.placeId}
-                      className="cursor-pointer px-3 py-2 hover:bg-gray-100"
+                      className={`cursor-pointer px-3 py-2 hover:bg-gray-100 ${
+                        index === destActiveIndex ? "bg-gray-100" : ""
+                      }`}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         selectDestSuggestion(s);
@@ -517,15 +565,9 @@ export default function HomePage() {
               <option value="" disabled>
                 Επιλέξτε είδος ασθενοφόρου
               </option>
-              <option value="basic">
-                Απλό ασθενοφόρο (μεταφορά ασθενούς)
-              </option>
-              <option value="doctor">
-                Ασθενοφόρο με συνοδεία ιατρού
-              </option>
-              <option value="icu">
-                Μονάδα εντατικής θεραπείας (ΜΕΘ)
-              </option>
+              <option value="basic">Απλό ασθενοφόρο (μεταφορά ασθενούς)</option>
+              <option value="doctor">Ασθενοφόρο με συνοδεία ιατρού</option>
+              <option value="icu">Μονάδα εντατικής θεραπείας (ΜΕΘ)</option>
               <option value="unknown">
                 Δεν είμαι σίγουρος – να προτείνει η εταιρεία
               </option>
@@ -553,6 +595,7 @@ export default function HomePage() {
               required
               placeholder="π.χ. onoma@example.com"
               className="input"
+              autoComplete="email"
             />
           </label>
 
@@ -564,6 +607,7 @@ export default function HomePage() {
               name="fullName"
               placeholder="π.χ. Γιώργος Παπαδόπουλος"
               className="input"
+              autoComplete="name"
             />
           </label>
 
@@ -573,8 +617,9 @@ export default function HomePage() {
             <input
               type="tel"
               name="phone"
-              placeholder="π.χ. 69XXXXXXXX"
+              placeholder="π.χ. 6941234567"
               className="input"
+              autoComplete="tel"
             />
           </label>
 
