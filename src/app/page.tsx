@@ -94,6 +94,20 @@ async function fetchPlaceDetails(placeId: string): Promise<PlaceInfo> {
   }
 }
 
+// --------- options για ώρα (24ωρο, ανά 30 λεπτά) ----------
+const TIME_OPTIONS: { value: string; label: string }[] = Array.from(
+  { length: 24 * 2 },
+  (_, i) => {
+    const totalMinutes = i * 30;
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    const value = `${h.toString().padStart(2, "0")}:${m
+      .toString()
+      .padStart(2, "0")}`;
+    return { value, label: value };
+  }
+);
+
 // ---------------- Κύρια σελίδα ----------------
 export default function HomePage() {
   const pickupRef = useRef<HTMLInputElement>(null);
@@ -407,6 +421,30 @@ export default function HomePage() {
         source: "ambugo-web",
       });
 
+      // 🔔 ΚΑΛΕΙ το API route για να φύγουν τα emails
+      try {
+        await fetch("/api/notify-new-request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pickupText,
+            destText,
+            date,
+            timeFrom: timeFrom || null,
+            timeTo: timeTo || null,
+            ambulanceType,
+            isEmergency,
+            email,
+            fullName: fullName || null,
+            phone: phone || null,
+            comments,
+          }),
+        });
+      } catch (err) {
+        console.error("Failed to call /api/notify-new-request", err);
+        // Δεν σπάμε τη ροή του χρήστη αν κολλήσει το email
+      }
+
       setErrorMsg(null);
       setSuccessMsg("✅ Το αίτημα καταχωρήθηκε! Θα λάβεις σύντομα προσφορές.");
       form.reset();
@@ -541,15 +579,29 @@ export default function HomePage() {
             <input type="date" name="date" required className="input" min={today} />
           </label>
 
-          {/* Ώρα παραλαβής (από / έως) */}
+          {/* Ώρα παραλαβής (από / έως) – dropdown 24ωρο */}
           <label className="grid gap-1">
             <span className="label flex items-center justify-between">
               <span>Ώρα παραλαβής</span>
               <span className="text-xs text-gray-500">(προαιρετική)</span>
             </span>
             <div className="flex gap-2">
-              <input type="time" name="timeFrom" className="input" />
-              <input type="time" name="timeTo" className="input" />
+              <select name="timeFrom" className="input">
+                <option value="">--:--</option>
+                {TIME_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <select name="timeTo" className="input">
+                <option value="">--:--</option>
+                {TIME_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </label>
 
