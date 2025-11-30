@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
       fullName,
       phone,
       comments,
+      publicToken,
     } = body as {
       pickupText: string;
       destText: string;
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
       fullName?: string;
       phone?: string;
       comments?: string;
+      publicToken?: string;
     };
 
     const subjectPrefix = isEmergency ? "⚠️ ΕΠΕΙΓΟΝ" : "Νέο αίτημα";
@@ -79,6 +81,16 @@ export async function POST(req: NextRequest) {
 
     const safeComments = (comments || "").replace(/\n/g, "<br />") || "-";
 
+    // URL για προβολή προσφορών από τον πελάτη
+    let publicUrl: string | null = null;
+    if (publicToken) {
+      const base =
+        process.env.PUBLIC_REQUEST_BASE_URL ||
+        "https://ambugo-app.vercel.app/r";
+      const trimmedBase = base.replace(/\/$/, "");
+      publicUrl = `${trimmedBase}/${publicToken}`;
+    }
+
     // 1) Email προς εσένα / συνεργάτες
     await resend.emails.send({
       from,
@@ -86,7 +98,9 @@ export async function POST(req: NextRequest) {
       subject,
       html: `
         <h2>Νέο αίτημα ασθενοφόρου</h2>
-        <p><strong>${isEmergency ? "ΕΠΕΙΓΟΝ περιστατικό" : "Συνήθες περιστατικό"}</strong></p>
+        <p><strong>${
+          isEmergency ? "ΕΠΕΙΓΟΝ περιστατικό" : "Συνήθες περιστατικό"
+        }</strong></p>
         <p><strong>Ημερομηνία μεταφοράς:</strong> ${date || "-"}</p>
         <p><strong>Ώρα παραλαβής:</strong> ${timeLabel}</p>
         <p><strong>Είδος ασθενοφόρου:</strong> ${typeLabel}</p>
@@ -124,6 +138,21 @@ export async function POST(req: NextRequest) {
                 isEmergency ? "Ναι (επείγον περιστατικό)" : "Όχι"
               }</li>
             </ul>
+            ${
+              publicUrl
+                ? `
+            <p>
+              Μπορείτε να παρακολουθείτε online τις προσφορές για το αίτημά σας
+              από τον παρακάτω σύνδεσμο:
+            </p>
+            <p>
+              <a href="${publicUrl}" target="_blank" rel="noopener noreferrer">
+                Προβολή προσφορών για το αίτημά μου
+              </a>
+            </p>
+            `
+                : ""
+            }
             <p>
               Μόλις υπάρχουν διαθέσιμες προσφορές, θα λάβετε ενημέρωση στο email σας.
             </p>

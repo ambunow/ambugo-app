@@ -59,6 +59,11 @@ function formatDate(ts?: Timestamp | null, fallback?: string) {
   return fallback || "-";
 }
 
+// βοηθητικό για YYYY-MM-DD
+function getYMD(date: Date) {
+  return date.toISOString().split("T")[0];
+}
+
 export default function AdminPage() {
   const [requests, setRequests] = useState<RequestDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,11 +72,22 @@ export default function AdminPage() {
 
   // φίλτρα & ταξινόμηση
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [emergencyFilter, setEmergencyFilter] = useState<"all" | "emergency" | "nonEmergency">("all");
+  const [emergencyFilter, setEmergencyFilter] = useState<
+    "all" | "emergency" | "nonEmergency"
+  >("all");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
 
+  // φίλτρο ημερομηνιών (βάσει Ημ/νίας μεταφοράς)
+  const [dateFilterType, setDateFilterType] = useState<
+    "today" | "yesterday" | "all" | "range"
+  >("today");
+  const [dateFrom, setDateFrom] = useState<string>(() => getYMD(new Date()));
+  const [dateTo, setDateTo] = useState<string>(() => getYMD(new Date()));
+
   // για popup λεπτομερειών
-  const [selectedRequest, setSelectedRequest] = useState<RequestDoc | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<RequestDoc | null>(
+    null
+  );
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -148,24 +164,63 @@ export default function AdminPage() {
   const filteredRequests = useMemo(() => {
     let result = [...requests];
 
+    // φίλτρο κατάστασης
     if (statusFilter !== "all") {
-      result = result.filter(
-        (r) => (r.status || "pending") === statusFilter
-      );
+      result = result.filter((r) => (r.status || "pending") === statusFilter);
     }
 
+    // φίλτρο επείγοντος
     if (emergencyFilter === "emergency") {
       result = result.filter((r) => r.isEmergency);
     } else if (emergencyFilter === "nonEmergency") {
       result = result.filter((r) => !r.isEmergency);
     }
 
+    // φίλτρο ημερομηνίας (βάσει r.date = Ημ/νία μεταφοράς)
+    const todayStr = getYMD(new Date());
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    const yesterdayStr = getYMD(y);
+
+    result = result.filter((r) => {
+      const dateStr = (r.date || "").slice(0, 10);
+
+      if (!dateFilterType || dateFilterType === "all") {
+        return true;
+      }
+
+      switch (dateFilterType) {
+        case "today":
+          return dateStr === todayStr;
+        case "yesterday":
+          return dateStr === yesterdayStr;
+        case "range": {
+          if (!dateFrom && !dateTo) return true;
+          if (!dateStr) return false;
+          if (dateFrom && dateStr < dateFrom) return false;
+          if (dateTo && dateStr > dateTo) return false;
+          return true;
+        }
+        default:
+          return true;
+      }
+    });
+
+    // ταξινόμηση (τα δεδομένα έρχονται desc, οπότε για asc κάνουμε reverse)
     if (sortDir === "asc") {
       result.reverse();
     }
 
     return result;
-  }, [requests, statusFilter, emergencyFilter, sortDir]);
+  }, [
+    requests,
+    statusFilter,
+    emergencyFilter,
+    sortDir,
+    dateFilterType,
+    dateFrom,
+    dateTo,
+  ]);
 
   return (
     <section className="container py-10">
@@ -210,13 +265,52 @@ export default function AdminPage() {
                 className="input !py-1 !text-xs w-44"
                 value={emergencyFilter}
                 onChange={(e) =>
-                  setEmergencyFilter(e.target.value as "all" | "emergency" | "nonEmergency")
+                  setEmergencyFilter(
+                    e.target.value as "all" | "emergency" | "nonEmergency"
+                  )
                 }
               >
                 <option value="all">Όλα</option>
                 <option value="emergency">Μόνο επείγοντα</option>
                 <option value="nonEmergency">Μόνο μη επείγοντα</option>
               </select>
+            </div>
+
+            {/* Φίλτρο ημερομηνίας μεταφοράς */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-600">Ημ/νία μεταφοράς:</span>
+              <select
+                className="input !py-1 !text-xs w-52"
+                value={dateFilterType}
+                onChange={(e) =>
+                  setDateFilterType(
+                    e.target.value as "today" | "yesterday" | "all" | "range"
+                  )
+                }
+              >
+                <option value="today">Τρέχουσα ημέρα</option>
+                <option value="yesterday">Προηγούμενη μέρα</option>
+                <option value="all">Όλες οι μέρες</option>
+                <option value="range">Διάστημα ημερών</option>
+              </select>
+
+              {dateFilterType === "range" && (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="date"
+                    className="input !py-1 !text-xs"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                  />
+                  <span className="text-xs text-gray-500">έως</span>
+                  <input
+                    type="date"
+                    className="input !py-1 !text-xs"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
 
             <button
@@ -227,7 +321,11 @@ export default function AdminPage() {
               }
             >
               Ταξινόμηση κατά ημ/νία αίτησης
-              <span>{sortDir === "desc" ? "↓ (νεότερα πρώτα)" : "↑ (παλαιότερα πρώτα)"}</span>
+              <span>
+                {sortDir === "desc"
+                  ? "↓ (νεότερα πρώτα)"
+                  : "↑ (παλαιότερα πρώτα)"}
+              </span>
             </button>
           </div>
 
@@ -247,7 +345,9 @@ export default function AdminPage() {
                         type="button"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-black"
                         onClick={() =>
-                          setSortDir((prev) => (prev === "desc" ? "asc" : "desc"))
+                          setSortDir((prev) =>
+                            prev === "desc" ? "asc" : "desc"
+                          )
                         }
                       >
                         Ημ/νία αίτησης
@@ -285,7 +385,9 @@ export default function AdminPage() {
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {r.timeFrom || r.timeTo
-                          ? `${r.timeFrom || "--:--"} – ${r.timeTo || "--:--"}`
+                          ? `${r.timeFrom || "--:--"} – ${
+                              r.timeTo || "--:--"
+                            }`
                           : "-"}
                       </td>
                       <td className="px-3 py-2">
@@ -381,11 +483,15 @@ export default function AdminPage() {
 
             <div className="space-y-2 text-sm">
               <div>
-                <span className="font-medium text-gray-700">Ημ/νία αίτησης:</span>{" "}
+                <span className="font-medium text-gray-700">
+                  Ημ/νία αίτησης:
+                </span>{" "}
                 <span>{formatDate(selectedRequest.createdAt, "-")}</span>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Ημ/νία μεταφοράς:</span>{" "}
+                <span className="font-medium text-gray-700">
+                  Ημ/νία μεταφοράς:
+                </span>{" "}
                 <span>{selectedRequest.date || "-"}</span>
               </div>
               <div>
@@ -411,7 +517,9 @@ export default function AdminPage() {
                 </div>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Είδος ασθενοφόρου:</span>{" "}
+                <span className="font-medium text-gray-700">
+                  Είδος ασθενοφόρου:
+                </span>{" "}
                 <span>
                   {selectedRequest.ambulanceType
                     ? ambulanceTypeLabel[selectedRequest.ambulanceType] ??

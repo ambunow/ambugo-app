@@ -108,6 +108,26 @@ const TIME_OPTIONS: { value: string; label: string }[] = Array.from(
   }
 );
 
+// --------- helper για public token ----------
+function generatePublicToken(length = 32): string {
+  const chars =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let result = "";
+  const array = new Uint32Array(length);
+  if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(array);
+    for (let i = 0; i < length; i++) {
+      result += chars[array[i] % chars.length];
+    }
+  } else {
+    // fallback
+    for (let i = 0; i < length; i++) {
+      result += chars[Math.floor(Math.random() * chars.length)];
+    }
+  }
+  return result;
+}
+
 // ---------------- Κύρια σελίδα ----------------
 export default function HomePage() {
   const pickupRef = useRef<HTMLInputElement>(null);
@@ -400,6 +420,9 @@ export default function HomePage() {
 
       await ensureAnonAuth();
 
+      // Δημιουργούμε μοναδικό public token για τον πελάτη
+      const publicToken = generatePublicToken(32);
+
       await addDoc(collection(db, "requests"), {
         pickupText,
         pickupLat: pLat ?? null,
@@ -419,9 +442,10 @@ export default function HomePage() {
         createdAt: serverTimestamp(),
         status: "pending",
         source: "ambugo-web",
+        publicToken,
       });
 
-      // 🔔 ΚΑΛΕΙ το API route για να φύγουν τα emails
+      // 🔔 ΚΑΛΕΙ το API route για να φύγουν τα emails (μαζι και το publicToken)
       try {
         await fetch("/api/notify-new-request", {
           method: "POST",
@@ -438,6 +462,7 @@ export default function HomePage() {
             fullName: fullName || null,
             phone: phone || null,
             comments,
+            publicToken,
           }),
         });
       } catch (err) {
